@@ -76,7 +76,7 @@ vector<int> group_list;
 struct FileInfo //YES
 {
     std::string fileName;                // Name of the file
-    std::string groupId;                 // Group ID to which the file belongs
+    std::string groupId;                 // sGroup ID to which the file belongs
     std::string clientId;                // ID of the client who has the file
     // std::string filepath;                // Path to the file on the client
     // std::string filesize;                // Size of the file (as string)
@@ -278,7 +278,7 @@ void handle_ClientFunctions(int client_socket)
                 write(client_socket, response.c_str(), response.length());  
                 continue;
             }
-            if(group_owner[tokenise_commands[1]]!=login)
+            if(one_login[group_owner[tokenise_commands[1]]]==0)
             {
                 string response = "You can't accept request of this group, as you are not owner";
                 write(client_socket, response.c_str(), response.length());
@@ -371,7 +371,7 @@ void handle_ClientFunctions(int client_socket)
         }
         else if (tokenise_commands[0] == "logout") 
         {
-                if (login == "") 
+                if (one_login[login] == 0) 
                 {
                     string response = "You are not logged in";
                     write(client_socket, response.c_str(), response.length());
@@ -486,7 +486,7 @@ void handle_ClientFunctions(int client_socket)
             vector<FileInfo> file_holders;
             string filesize, file_sha1;
             vector<string> chunk_sha1s;
-
+            
             for(const auto& fileInfo : totalclients) 
             {
                 if(fileInfo.fileName == filename && fileInfo.groupId == groupid && fileInfo.isLoggedIn && !fileInfo.stop_share) 
@@ -587,6 +587,11 @@ void handle_ClientFunctions(int client_socket)
                         cout << "Client finished downloading chunks." << endl;
                         break; // Exit the per-chunk loop if client is done
                     }
+                    else if(have_tokens[0] == "NOT_DONE")
+                    {
+                        cout << "Client did not finish downloading chunks." << endl;
+                        break; // Exit the per-chunk loop if client is done
+                    }
 
                 }
                 
@@ -611,15 +616,15 @@ void handle_ClientFunctions(int client_socket)
                 write(client_socket, response.c_str(), response.length());
                 continue;
             }
-            if(login == "")
+            if(one_login[login] == 0)
             {
                 string response = "You are not logged in";
                 write(client_socket, response.c_str(), response.length());
                 continue;
             }
-            auto it=groups.find(login);
-            auto &find_userid=it->second;
-            if(find_userid.find(login)==find_userid.end())
+            auto it=groups[tokenise_commands[1]].find(login);
+            // auto &find_userid=it->second;
+            if(it==groups[tokenise_commands[1]].end())
             {
                 string response = "You are not even part of the group";
                 write(client_socket, response.c_str(), response.length()); 
@@ -627,26 +632,36 @@ void handle_ClientFunctions(int client_socket)
             } 
             int flag = 0;
             string message="";
+
             for (auto& fileInfo : trackerFiles) 
             {
                 if (fileInfo.groupId == tokenise_commands[1] && fileInfo.fileName == tokenise_commands[2]) 
                 {
-                    flag = 1;
-                    if(fileInfo.clientId == login)
+                    if(fileInfo.clientId == login && fileInfo.stop_share == false)
                     {
+                        flag = 1;
                         fileInfo.stop_share = true;
+                        for(int i=0;i<fileInfo.chunkSHA1s.size();i++){
+                            chunkownerPorts[{fileInfo.fileName, i}].erase(stoi(fileInfo.port));
+                        }
+                        
                         message+="File sharing stopped for " + fileInfo.fileName + " in group " + fileInfo.groupId + "By User: " + login + " ";
                         write(client_socket, message.c_str(), message.length()); 
                         break;
                     }
+                    else if(fileInfo.clientId == login && fileInfo.stop_share == true)
+                    {
+                        message+="You are not sharing this file.";
+                        write(client_socket, message.c_str(), message.length());
+                    }
 
                 }
             }
-            if(flag == 1)
-            {
-                message+="You don't even share this file.";
-                write(client_socket, message.c_str(), message.length());
-            }
+            // if(flag == 1)
+            // {
+            //     message+="You don't even share this file.";
+            //     write(client_socket, message.c_str(), message.length());
+            // }
             if(flag == 0)
             {
                 message+="File not found in this group.";

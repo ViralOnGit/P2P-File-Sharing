@@ -24,6 +24,11 @@
 using namespace std;
 enum class ChunkStatus { Missing, InProgress, Done };//this and below
 std::mutex tracker_comm_mutex;
+map<string, set<string>> downloadedFiles;
+map<pair<string, string>, int> stopShared;
+int check_login=0;
+
+
 
 
 vector<string> get_tokens_for_command(char buffer[1024],const char *delimiter)
@@ -122,18 +127,29 @@ string get_file_sha1(const char *filename) {
 }
 void clienttoseeder(int client_socket) {
     char buffer[1024];
+    if(check_login == 0) {
+        close(client_socket);
+        return;
+    }
     int bytes_received = read(client_socket, buffer, sizeof(buffer) - 1);
     if (bytes_received <= 0) {
         close(client_socket);
         return;
     }
+
     buffer[bytes_received] = '\0';
     istringstream iss(buffer);
     string filename;
+    string groupid;
     int chunk_index;
-    iss >> filename >> chunk_index;
+    iss >> filename >> groupid >> chunk_index;
 
-    //check stop sharing is true or not 
+    //check stop sharing is true or not
+    if(stopShared[{filename, groupid}] == 1)
+    {
+        close(client_socket);
+        return;
+    }
 
     int file_fd = open(filename.c_str(), O_RDONLY);
     if (file_fd < 0) {
@@ -222,9 +238,9 @@ std::string sha1_of_buffer(const char* buf, size_t len) {
     return std::string(hash_str);
 }
 
-bool download_file_from_peer(int peer_socket, int dest_fd, const std::string& filename, int chunk_index, size_t chunk_size, const std::string& expected_sha1) {
+bool download_file_from_peer(int peer_socket,string groupid ,int dest_fd, const std::string& filename, int chunk_index, size_t chunk_size, const std::string& expected_sha1) {
     // Send request: "<filename> <chunk_index>\n"
-    std::string request = filename + " " + std::to_string(chunk_index) + "\n";
+    std::string request = filename + " " + groupid + " " + std::to_string(chunk_index) + "\n";
     write(peer_socket, request.c_str(), request.size());
 
     // Read the 4-byte chunk size first
@@ -356,7 +372,7 @@ void download_worker(//this
             }
             cout << "Connected to peer at port: " << peer_port << endl;
 
-            if (download_file_from_peer(peer_socket, dest_fd, filename, chunk_to_download, CHUNK_SIZE, fourth_vector[chunk_to_download])) 
+            if (download_file_from_peer(peer_socket, groupid, dest_fd, filename, chunk_to_download, CHUNK_SIZE, fourth_vector[chunk_to_download])) 
             {
             
                 std::lock_guard<std::mutex> lock(chunk_mutex);
@@ -439,7 +455,6 @@ void run_client(const string& ip, int port)
     }
 
     cout << "Connected to tracker at " << ip << ":" << stoi(tokens[1]) << endl;
-    int check_login=0;
     string current_loggedin="";
     while (true) 
     {
@@ -471,6 +486,7 @@ void run_client(const string& ip, int port)
             strncpy(copied_command, command.c_str(), sizeof(copied_command));
             copied_command[sizeof(copied_command) - 1] = '\0'; // Ensure null-termination
             login_tokens=get_tokens_for_command(copied_command," \t");
+            // check_login=1;
             a=login_tokens[1];
         }
         
@@ -526,10 +542,24 @@ void run_client(const string& ip, int port)
             cout<<"You are not logged in"<<endl;
             continue;
         }
-        else if(compare_command=="stop_sharing" && check_login==0)
+        else if(compare_command=="stop_share")
         {
-            cout<<"You are not logged in"<<endl;
-            continue;
+            if(check_login==0)
+            {
+                cout<<"You are not logged in"<<endl;
+                continue;
+            }
+            else
+            {
+                char copied_command[256];
+                vector<string> shared_tokens;
+                strncpy(copied_command, command.c_str(), sizeof(copied_command));
+
+                shared_tokens=get_tokens_for_command(copied_command," \t");
+                string filename = shared_tokens[2];
+                string groupid = shared_tokens[1];
+                stopShared[{filename, groupid}] =   1;
+            }
         }
         else if(compare_command=="upload_file" && check_login==1)
         {
@@ -602,6 +632,8 @@ void run_client(const string& ip, int port)
         else if(compare_command == "download_file" && check_login == 1)//this
         {
             // 1. Parse command and get filename, destination path
+
+            
             char copied_command[256];
             vector<string> download_command_tokens;
             strncpy(copied_command, command.c_str(), sizeof(copied_command));
@@ -610,6 +642,11 @@ void run_client(const string& ip, int port)
             string filename = download_command_tokens[2];
             string destination_path = download_command_tokens[3];
             string groupid = download_command_tokens[1];   // <-- FIXED
+            if(downloadedFiles[groupid].find(filename) != downloadedFiles[groupid].end()) 
+            {
+                cout << "File already downloaded in this group." << endl;
+                continue;
+            }
 
 
             // 2. Ask tracker for file metadata (chunk SHA1s, etc.)
@@ -667,7 +704,7 @@ void run_client(const string& ip, int port)
                 [](const pair<int, vector<string>>& a, const pair<int, vector<string>>& b) {
                     return a.second.size() < b.second.size();
                 });
-
+            
             // 3. Prepare download state
             //now we have to connect to the ports by rarest first vector 
             //then download that chunk and mark it as done
@@ -675,7 +712,8 @@ void run_client(const string& ip, int port)
             //4) repeat 1-3 until all chunks are downloaded
             //----------------DONE------------------//
 
-
+            //add 5 seconds delay to current thread before starting download 
+            // this_thread::sleep_for(chrono::seconds(15));
             vector<ChunkStatus> chunk_status(fourth_vector.size(), ChunkStatus::Missing);
             std::mutex chunk_mutex;
 
@@ -707,9 +745,24 @@ void run_client(const string& ip, int port)
 
 
             // After all threads join
-            cout << "File is Downloaded Successfully." << endl;
-            string done_msg = "DONE";
-            write(client_socket, done_msg.c_str(), done_msg.size());
+            int cnt=0;
+            for (const auto& status : chunk_status) {
+                if (status == ChunkStatus::Missing) {
+                    cnt++;
+                }
+            }
+            if(cnt>0){
+                cout<<"Some chunks are missing."<<endl;
+                string nd="NOT_DONE";
+                write(client_socket, nd.c_str(), nd.length());
+            }
+            else{
+                cout << "File is Downloaded Successfully." << endl;
+                string done_msg = "DONE";
+                downloadedFiles[groupid].insert(filename);
+
+                write(client_socket, done_msg.c_str(), done_msg.size());
+            }
             close(dest_fd);
 
             
