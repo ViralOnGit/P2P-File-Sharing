@@ -62,7 +62,7 @@ Compile:
 
 Client: g++ client.cpp -o client -lssl -lcrypto -o client
 run client: ./client 127.0.0.1:8040 tracker_info.txt
-Tracker: g++ tracker.cpp -o tracker
+Tracker: g++ tracker.cpp utils.cpp -o tracker
 run tracker: ./tracker tracker_info.txt 1
 
 
