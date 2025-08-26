@@ -11,8 +11,9 @@
 #include <set>
 #include <unordered_set>
 #include <thread>
+#include "utils.h"
 using namespace std;
-
+Utils utils;
 //class of fileInfo
 
 int create_trackerSocket()
@@ -26,44 +27,50 @@ int create_trackerSocket()
     return createSocket;
 
 }
-vector<string> get_tokens_for_commands(char buffer[1024],const char *delimiter)
-{
-    vector<string> tokens;
-   
-        char *token = strtok(buffer, delimiter); 
-        while (token != nullptr) 
-        {
-            tokens.push_back(string(token)); 
-            token = strtok(nullptr, delimiter);
-        }
-    
- 
-    return tokens;
-}
-vector<string> get_tokens(const char *filename,const char *delimiter)
-{
-    vector<string> tokens;
-    FILE *file = fopen(filename, "r");
-    if (file == nullptr) 
-    {
-        cerr << "Error: Unable to open file." << endl;
-    }
-    char buffer[256];
-    while (fgets(buffer, sizeof(buffer), file)) 
-    {
-        // Strip the newline character if it exists
-        buffer[strcspn(buffer, "\n")] = 0;
-        char *token = strtok(buffer, delimiter); 
-        while (token != nullptr) 
-        {
-            tokens.push_back(string(token)); 
-            token = strtok(nullptr, delimiter);
-        }
-    }
-    fclose(file);
-    return tokens;
-
-}
+// vector<string> tokenize_line(const char *line, const char *delimiter)
+// {
+//     vector<string> tokens;
+//     // make a mutable copy of the line
+//     char *mutableLine = strdup(line);
+//     if (mutableLine == nullptr) {
+//         perror("strdup failed");
+//         return tokens;
+//     }
+  
+//     char *token = strtok(mutableLine, delimiter);
+//     while (token != nullptr) 
+//     {
+//         tokens.push_back(string(token));
+//         token = strtok(nullptr, delimiter);
+//     }
+//     free(mutableLine);
+//     return tokens;
+// }
+// vector<string> get_tokens_for_commands(char buffer[1024], const char *delimiter)
+// {
+//     return tokenize_line(buffer, delimiter);
+// }
+// vector<string> get_tokens(const char *filename, const char *delimiter)
+// {
+//     vector<string> tokens;
+//     FILE *file = fopen(filename, "r");
+//     if (file == nullptr) 
+//     {
+//         cerr << "Error: Unable to open file." << endl;
+//         return tokens;
+//     }
+  
+//     char buffer[256];
+//     while (fgets(buffer, sizeof(buffer), file)) 
+//     {
+//         // Remove any trailing newline character
+//         buffer[strcspn(buffer, "\n")] = '\0';
+//         vector<string> lineTokens = tokenize_line(buffer, delimiter);
+//         tokens.insert(tokens.end(), lineTokens.begin(), lineTokens.end());
+//     }
+//     fclose(file);
+//     return tokens;
+// }
 map<string,string> users;//key: user id, value: user password
 map<string,set<string>> groups;//key: group id
 map<string,string> group_owner;//key: group id, value: owner id of that groups
@@ -123,7 +130,7 @@ void handle_ClientFunctions(int client_socket)
             break; 
         }
         vector<string> tokenise_commands;
-        tokenise_commands=get_tokens_for_commands(buffer," \t");
+        tokenise_commands=utils.get_tokens_for_commands(buffer," \t");
         if(tokenise_commands[0]=="create_user")
         {
             if(users.find(tokenise_commands[1])!=users.end())
@@ -538,7 +545,7 @@ void handle_ClientFunctions(int client_socket)
                 if (have_chunk_bytes > 0) 
                 {
                     have_chunk_buffer[have_chunk_bytes] = '\0';
-                    have_tokens = get_tokens_for_commands(have_chunk_buffer, ";");
+                    have_tokens = utils.get_tokens_for_commands(have_chunk_buffer, ";");
                     for(int i = 0; i < have_tokens.size(); ++i) 
                     {
                         cout << "have_tokens[" << i << "]: " << have_tokens[i] << endl;
@@ -701,7 +708,7 @@ int main(int argc, char *argv[])
         exit(EXIT_FAILURE);
     }
     vector<string> tokens;
-    tokens=get_tokens(argv[1],":");//tokenising to get tracker ip and port
+    tokens=utils.get_tokens(argv[1],":");//tokenising to get tracker ip and port
     string tracker_ip_address =tokens[0];
     int tracker_port = stoi(tokens[1]);
 
