@@ -62,7 +62,7 @@ Compile:
 
 Client: g++ client.cpp -o client -lssl -lcrypto -o client
 run client: ./client 127.0.0.1:8040 tracker_info.txt
-Tracker: g++ tracker.cpp utils.cpp -o tracker
+Tracker: make
 run tracker: ./tracker tracker_info.txt 1
 
 
@@ -80,7 +80,7 @@ join_group 123
 accept_request 123 b
 
 *b side* 
-download_file 123 R.mp4 d125.mp4
+download_file 123 R.mp4 d1252.mp4
 
 stop_share 123 R.mp4
 
@@ -93,4 +93,4 @@ join_group 123
 accept_request 123 c
 
 *c side*
-download_file 123 R.mp4 Dkddhhdfk.mp4
+download_file 123 R.mp4 Dkddhweewhdfk.mp4
