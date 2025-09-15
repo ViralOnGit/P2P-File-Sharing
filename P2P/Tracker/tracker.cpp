@@ -4,28 +4,15 @@
 #include <cstring>
 #include <map>
 #include <unistd.h>
-#include <arpa/inet.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
 #include <algorithm>
 #include <set>
 #include <unordered_set>
 #include <thread>
 #include "utils.h"
 #include "TrackerCommandHandler.h"
+#include "TrackerSocket.h"
 using namespace std;
 Utils utils;
-
-int create_trackerSocket()
-{
-    int createSocket=socket(AF_INET, SOCK_STREAM, 0);
-    if (createSocket < 0) 
-    {
-        cout << "Socket for tracker is not created" << endl;
-        return -1;
-    }
-    return createSocket;
-}
 
 // Global TrackerCommandHandler instance
 TrackerCommandHandler commandHandler;
@@ -122,70 +109,28 @@ void handle_ClientFunctions(int client_socket)
 
 int main(int argc, char *argv[]) 
 {
-    int opt=1;
     if(argc != 3)
     {
         cerr << "There must be exactly 3 arguments for tracker" << endl;
         return 1;
     }
 
-    // socket creation
-    int server_socket = create_trackerSocket();
-    if (server_socket < 0) {
-        cout << "Socket for tracker is not created" << endl;
-        return 1;
-    }
-    if (setsockopt(server_socket, SOL_SOCKET,SO_REUSEADDR | SO_REUSEPORT, &opt,sizeof(opt))) 
-    {
-        perror("setsockopt");
-        exit(EXIT_FAILURE);
-    }
+    // Parse tracker IP and port
     vector<string> tokens;
-    tokens=utils.get_tokens(argv[1],":");//tokenising to get tracker ip and port
-    string tracker_ip_address =tokens[0];
+    tokens = utils.get_tokens(argv[1], ":");
+    string tracker_ip_address = tokens[0];
     int tracker_port = stoi(tokens[1]);
 
-    sockaddr_in server_addr;
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_addr.s_addr = inet_addr(tracker_ip_address.c_str());  // Convert IP to binary
-    server_addr.sin_port = htons(tracker_port);  // Convert port to network byte order
-    inet_pton(AF_INET, tracker_ip_address.c_str(), &(server_addr.sin_addr));
+    TrackerSocket server(tracker_ip_address, tracker_port);
 
-
-    // bind the socket to the IP and port
-    if (bind(server_socket, (sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
-        cerr << "Bind failed." << endl;
-        close(server_socket);
-        return 1;
-    }
-    // listen for incoming connections
-    if (listen(server_socket, 5) < 0) {
-        cerr << "Listen failed." << endl;
-        close(server_socket);
+    // Initialize the server
+    if (!server.init()) {
+        cerr << "Failed to initialize server" << endl;
         return 1;
     }
 
-    cout << "Tracker is running on " << tracker_ip_address << ":" << tracker_port << endl;
+    // Start the server (this will run indefinitely)
+    server.run();
 
-    // Main loop to accept client connections
-    vector<thread> tids;
-    int client_socket;
-    while (true) {
-        // Accept the incoming client connection
-        sockaddr_in client_addr;
-        socklen_t addr_len = sizeof(client_addr);
-        client_socket = accept(server_socket, (sockaddr*)&client_addr, &addr_len);
-        if (client_socket < 0) {
-            cerr << "Accept failed." << endl;
-            continue;
-        }
-
-        cout<<"Client and Tracker Connected!"<<endl;
-
-        // Create thread to handle client
-        tids.push_back(thread(handle_ClientFunctions, client_socket));
-    }
-    // Close the tracker socket
-    close(server_socket);
     return 0;
 }

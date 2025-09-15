@@ -6,15 +6,15 @@ CXXFLAGS = -std=c++11 -Wall -Wextra -O2 -lpthread -lm -Wno-unused-result
 TARGET = tracker
 
 # Source files for the tracker (modularized version)
-SOURCES = tracker.cpp TrackerCommandHandler.cpp utils.cpp
+SOURCES = tracker.cpp TrackerCommandHandler.cpp TrackerSocket.cpp utils.cpp
 
-# Object files
+# Object files (replace .cpp with .o)
 OBJECTS = $(SOURCES:.cpp=.o)
 
-# Default target - build tracker
+# Default target
 all: $(TARGET)
 
-# Build the tracker executable
+# Build the main executable
 $(TARGET): $(OBJECTS)
 	$(CXX) $(CXXFLAGS) -o $(TARGET) $(OBJECTS)
 
