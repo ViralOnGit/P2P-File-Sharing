@@ -1,0 +1,10 @@
+*.o
+client
+tracker
+*.log
+__pycache__/
+*.pyc
+.vscode/
+*.pdf
+*.mp4
+*.txt

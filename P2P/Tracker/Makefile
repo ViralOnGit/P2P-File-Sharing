@@ -1,12 +1,13 @@
 # Compiler and flags
 CXX = g++
-CXXFLAGS = -std=c++11 -Wall -Wextra -O2 -lpthread -lm -Wno-unused-result
+CXXFLAGS = -std=c++11 -Wall -Wextra -O2 -lpthread -lm
+
 
 # Target executable name
 TARGET = tracker
 
-# Source files for the tracker (modularized version)
-SOURCES = tracker.cpp TrackerCommandHandler.cpp TrackerSocket.cpp utils.cpp
+# Source files (all .cpp files in current directory)
+SOURCES = tracker.cpp utils.cpp
 
 # Object files (replace .cpp with .o)
 OBJECTS = $(SOURCES:.cpp=.o)

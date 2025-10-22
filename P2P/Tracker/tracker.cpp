@@ -66,11 +66,11 @@ int main(int argc, char *argv[])
 
     // Parse tracker IP and port
     vector<string> tokens;
-    tokens = utils.get_tokens(argv[1], ":");
+    tokens = utils.get_tokens(argv[1], ":"); //calls get_tokens from utils.cpp
     string tracker_ip_address = tokens[0];
     int tracker_port = stoi(tokens[1]);
 
-    TrackerSocket server(tracker_ip_address, tracker_port);
+    TrackerSocket server(tracker_ip_address, tracker_port);//creates object of TrackerSocket class
 
     // Initialize the server
     if (!server.init()) {
