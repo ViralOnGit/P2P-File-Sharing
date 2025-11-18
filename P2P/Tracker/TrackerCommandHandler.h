@@ -69,7 +69,6 @@ private:
     map<string, int> one_login; // userID -> login status (0 or 1)
     map<pair<string, int>, unordered_set<int>> chunkownerPorts; // {filename, chunkNum} -> set of ports
     vector<FileInfo> trackerFiles; // Files uploaded to groups
-    vector<FileInfo> totalclients; // All clients' file info
     vector<int> group_list; // List of group IDs
     UserCommandHandler* userHandler;
     GroupCommandHandler* groupHandler;
@@ -88,7 +87,6 @@ public:
     map<string, int>& getOneLogin();
     map<pair<string, int>, unordered_set<int>>& getChunkownerPorts();
     vector<FileInfo>& getTrackerFiles();
-    vector<FileInfo>& getTotalClients();
     string& getLogin();
     vector<int>& getGroupList();
 

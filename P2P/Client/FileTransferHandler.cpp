@@ -20,14 +20,16 @@ extern std::mutex tracker_comm_mutex;
 FileTransferHandler::FileTransferHandler() {}
 
 // Download helper function - downloads a single chunk from a peer
-bool FileTransferHandler::download_file_from_peer(int peer_socket, string groupid, int dest_fd, const std::string& filename, int chunk_index, size_t chunk_size, const std::string& expected_sha1) {
+bool FileTransferHandler::download_file_from_peer(int peer_socket, string groupid, int dest_fd, const std::string& filename, int chunk_index, size_t chunk_size, const std::string& expected_sha1) 
+{ //Do FROM HERE!!!
     ClientUtils utils;
     std::string request = filename + " " + groupid + " " + std::to_string(chunk_index) + "\n";
     write(peer_socket, request.c_str(), request.size());
 
     uint32_t chunk_size_net;
     ssize_t size_read = read(peer_socket, &chunk_size_net, sizeof(chunk_size_net));
-    if (size_read != sizeof(chunk_size_net)) {
+    if (size_read != sizeof(chunk_size_net)) 
+    {
         std::cerr << "Failed to read chunk size." << std::endl;
         close(peer_socket);
         return false;
@@ -68,83 +70,85 @@ bool FileTransferHandler::download_file_from_peer(int peer_socket, string groupi
 
 // Download worker function - handles multi-threaded chunk downloading
 void FileTransferHandler::download_worker(
-    int client_socket,
-    int dest_fd,
-    const string& filename,
-    const string& groupid,
-    const string& port,
-    const vector<string>& fourth_vector,
-    vector<ChunkStatus>& chunk_status,
-    mutex& chunk_mutex,
-    vector<pair<int, vector<string>>>& chunk_ports_vec,
-    std::atomic<int>& next_chunk_index)
-{
-    while (true)
-    {
+    int client_socket, int dest_fd, const string& filename, const string& groupid, 
+    const string& port, const vector<string>& allsha1s, vector<ChunkStatus>& chunk_status, 
+    mutex& chunk_mutex, vector<pair<int, vector<string>>>& chunk_ports_vec, 
+    std::atomic<int>& next_chunk_index) {
+
+    while (true) {
         int current_index = next_chunk_index.fetch_add(1);
         if (current_index >= static_cast<int>(chunk_ports_vec.size())) break;
         int chunk_to_download = chunk_ports_vec[current_index].first;
+
         {
-            std::lock_guard<std::mutex> lock(chunk_mutex);
+            std::lock_guard lock(chunk_mutex);
             if (chunk_status[chunk_to_download] == ChunkStatus::Done) continue;
             chunk_status[chunk_to_download] = ChunkStatus::InProgress;
         }
-        cout << "Thread " << std::this_thread::get_id() << ": Downloading chunk "
-             << chunk_to_download << endl;
+
+        cout << "Thread " << std::this_thread::get_id() << ": Downloading chunk " << chunk_to_download << endl;
 
         bool chunk_downloaded = false;
-        std::lock_guard<std::mutex> lock(tracker_comm_mutex);
-        vector<string> peer_ports;
-        for(const auto& port : chunk_ports_vec[current_index].second)
-        {
-            peer_ports.push_back(port);
-        }
-        for(string i : peer_ports)
-        {
-            cout << "Peer port: " << i << "";
+
+        vector<string> peer_ports = chunk_ports_vec[current_index].second;  // Direct copy (efficient for small vectors).
+        for (const string& i : peer_ports) {
+            cout << "Peer port: " << i << " ";
         }
         cout << endl;
+
         std::random_device rd;
         std::mt19937 g(rd());
         std::shuffle(peer_ports.begin(), peer_ports.end(), g);
 
-        for (const auto& peer_port : peer_ports)
-        {
+        for (const auto& peer_port : peer_ports) {
             int peer_socket = socket(AF_INET, SOCK_STREAM, 0);
             if (peer_socket < 0) continue;
+
             struct sockaddr_in peer_addr;
             peer_addr.sin_family = AF_INET;
             peer_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
             peer_addr.sin_port = htons(stoi(peer_port));
+
             if (connect(peer_socket, (struct sockaddr*)&peer_addr, sizeof(peer_addr)) < 0) {
                 close(peer_socket);
                 continue;
             }
+
             cout << "Connected to peer at port: " << peer_port << endl;
 
-            if (download_file_from_peer(peer_socket, groupid, dest_fd, filename, chunk_to_download, CHUNK_SIZE, fourth_vector[chunk_to_download]))
-            {
-                std::lock_guard<std::mutex> lock(chunk_mutex);
-                chunk_status[chunk_to_download] = ChunkStatus::Done;
-
-                string have_chunk_msg = "have_chunk;" + filename + ";" + to_string(chunk_to_download) + ";" + port + ";";
-                char ack_buffer[32];
-                write(client_socket, have_chunk_msg.c_str(), have_chunk_msg.size());
-                int ack_bytes = read(client_socket, ack_buffer, sizeof(ack_buffer) - 1);
-                if (ack_bytes > 0) {
-                    ack_buffer[ack_bytes] = '\0';
-                    cout << "Tracker response: " << ack_buffer << endl;
+            if (download_file_from_peer(peer_socket, groupid, dest_fd, filename, chunk_to_download, 
+                                        CHUNK_SIZE, allsha1s[chunk_to_download])) {
+                {
+                    std::lock_guard status_lock(chunk_mutex);
+                    chunk_status[chunk_to_download] = ChunkStatus::Done;
                 }
+
+                {
+                    std::lock_guard comm_lock(tracker_comm_mutex); //as thread will communicate to tracker
+                    //to share the update that it has downloaded a chunk so mutex help in thread synchronization
+                    //with tracker
+
+                    string have_chunk_msg = "have_chunk;" + filename + ";" + to_string(chunk_to_download) + ";" + port + ";";
+                    write(client_socket, have_chunk_msg.c_str(), have_chunk_msg.size());
+                    char ack_buffer[32];
+                    int ack_bytes = read(client_socket, ack_buffer, sizeof(ack_buffer) - 1);
+                    if (ack_bytes > 0) {
+                        string ack(ack_buffer, ack_bytes);  // Safer than manual null-term.
+                        cout << "Tracker response: " << ack << endl;
+                    } else if (ack_bytes < 0) {
+                        cerr << "Error reading ACK from tracker: " << strerror(errno) << endl;
+                    }
+                }
+
                 chunk_downloaded = true;
                 close(peer_socket);
-                break;
+                break;  // Success: Stop retrying other peers for this chunk.
             }
-            close(peer_socket);
+            close(peer_socket);  // Failure: Retry next peer.
         }
 
-        if (!chunk_downloaded)
-        {
-            std::lock_guard<std::mutex> lock(chunk_mutex);
+        if (!chunk_downloaded) {
+            std::lock_guard lock(chunk_mutex);
             chunk_status[chunk_to_download] = ChunkStatus::Missing;
         }
     }
@@ -208,6 +212,13 @@ void FileTransferHandler::handle_upload_file(
         cout << "Response from tracker: " << buffer << endl;
     }
 }
+/*
+    from the command received from client, it parses the command 
+    to extract necessary details like filename, destination path, group ID, etc.
+    then get full file SHA and each chunk SHA to send to tracker as any client
+    who will download the file should have this info to compare for integrity.
+    and likewise create messsage with all this info and sends to tracker.
+*/
 
 void FileTransferHandler::handle_download_file(
     int client_socket,
@@ -220,7 +231,7 @@ void FileTransferHandler::handle_download_file(
     strncpy(copied_command, command.c_str(), sizeof(copied_command));
     copied_command[sizeof(copied_command) - 1] = '\0';
     download_command_tokens = utils.get_tokens_for_command(copied_command, " \t");
-    string filename = download_command_tokens[2];
+    string filename = download_command_tokens[2];//know why its extracting
     string destination_path = download_command_tokens[3];
     string groupid = download_command_tokens[1];
     if(downloadedFiles[groupid].find(filename) != downloadedFiles[groupid].end())
@@ -229,39 +240,46 @@ void FileTransferHandler::handle_download_file(
         return;
     }
 
-    write(client_socket, command.c_str(), command.size());
+    write(client_socket, command.c_str(), command.size()); //see what is client socket
     char buffer[20480];
     int bytes_received = read(client_socket, buffer, sizeof(buffer) - 1);
 
     if (bytes_received > 0) {
         buffer[bytes_received] = '\0';
     }
-    vector<string> download_tokens = utils.get_tokens_for_command(buffer, ";");
-    vector<string> fourth_vector;
+    vector<string> download_tokens = utils.get_tokens_for_command(buffer, ";"); //1st is all sha1s of file then seperation
+    //by ; and then each chunk number space its available ports(space seperated) ;(; seperated)
+    //then new chunk no and its ports in that order
+    vector<string> allsha1s;
 
-    if (!download_tokens.empty()) {
+    if (!download_tokens.empty()) //storing all sha1s of file in allsha1s vector
+    { 
         char temp[20480];
         strncpy(temp, download_tokens[0].c_str(), sizeof(temp));
         temp[sizeof(temp) - 1] = '\0';
         char *subtoken = strtok(temp, " ");
         while (subtoken != nullptr) {
-            fourth_vector.push_back(string(subtoken));
+            allsha1s.push_back(string(subtoken));
             subtoken = strtok(nullptr, " ");
         }
     }
 
     vector<pair<int, vector<string>>> chunk_ports_vec;
-    if (download_tokens.size() > 1) {
-        for (size_t i = 1; i < download_tokens.size(); ++i) {
+    if (download_tokens.size() > 1) //now storing chunk number and all ports that have it
+    {
+        for (int i = 1; i < download_tokens.size(); ++i) 
+        {
             char temp[20480];
             strncpy(temp, download_tokens[i].c_str(), sizeof(temp));
             temp[sizeof(temp) - 1] = '\0';
             vector<string> tokens;
-            char *subtoken = strtok(temp, " ");
+            char *subtoken = strtok(temp, " "); //strtok returns a ptr to next token
+            //of the string
             if (subtoken == nullptr) continue;
             int chunk_no = stoi(subtoken);
             subtoken = strtok(nullptr, " ");
-            while (subtoken != nullptr) {
+            while (subtoken != nullptr) 
+            {
                 tokens.push_back(string(subtoken));
                 subtoken = strtok(nullptr, " ");
             }
@@ -270,22 +288,36 @@ void FileTransferHandler::handle_download_file(
     }
 
     sort(chunk_ports_vec.begin(), chunk_ports_vec.end(),
-        [](const pair<int, vector<string>>& a, const pair<int, vector<string>>& b) {
+        [](const pair<int, vector<string>>& a, const pair<int, vector<string>>& b) 
+        {
             return a.second.size() < b.second.size();
-        });
+        }); //RAREST FIRST!!
 
-    vector<ChunkStatus> chunk_status(fourth_vector.size(), ChunkStatus::Missing);
-    std::mutex chunk_mutex;
+    vector<ChunkStatus> chunk_status(allsha1s.size(), ChunkStatus::Missing);
+    std::mutex chunk_mutex; //know why chunk mutex here
 
     int dest_fd = open(destination_path.c_str(), O_WRONLY | O_CREAT, S_IRUSR | S_IWUSR);
-    if (dest_fd < 0) {
+    if (dest_fd < 0) 
+    {
         cerr << "Error opening destination file: " << destination_path << endl;
         return;
     }
     std::atomic<int> next_chunk_index(0);
-    const int NUM_THREADS = 4;
+    /*
+    Why atomic (not just int):
+    // BAD (non-atomic):
+    int next_chunk = next_chunk_index; // Thread 1 reads 0
+    next_chunk_index++;                // Thread 2 reads 0 (before Thread 1 increments!)
+    // Both get chunk 0!
+
+    // GOOD (atomic):
+    int next_chunk = next_chunk_index.fetch_add(1); 
+    // Thread 1 gets 0, Thread 2 gets 1 (guaranteed)
+        */
+    int NUM_THREADS = 4;
     vector<thread> threads;
-    for (int i = 0; i < NUM_THREADS; ++i) {
+    for (int i = 0; i < NUM_THREADS; ++i) //creating 4 threads to download chunks in parallel
+    {
         threads.emplace_back(
             download_worker,
             client_socket,
@@ -293,23 +325,51 @@ void FileTransferHandler::handle_download_file(
             filename,
             groupid,
             to_string(port),
-            fourth_vector,
+            allsha1s,
             std::ref(chunk_status),
             std::ref(chunk_mutex),
             std::ref(chunk_ports_vec),
             std::ref(next_chunk_index)
         );
     }
+    /* SAME TASK running in parallel, but on DIFFERENT DATA
+Thread 1:           Thread 2:           Thread 3:           Thread 4:
+- Download chunk 0  - Download chunk 1  - Download chunk 2  - Download chunk 3
+- Download chunk 4  - Download chunk 5  - Download chunk 6  - Download chunk 7
+- Download chunk 8  - ...// */
+/*Without Multithreading (Sequential):
+    Main Thread Downloads:
+├─ Connect to Peer A, download chunk 0 (2 seconds)
+├─ Connect to Peer B, download chunk 1 (2 seconds)
+├─ Connect to Peer C, download chunk 2 (2 seconds)
+├─ Connect to Peer D, download chunk 3 (2 seconds)
+└─ Total time: 8 seconds
+    With 4 Threads (Parallel):
+    Thread 1: Connect to Peer A, download chunk 0 (2 seconds)
+Thread 2: Connect to Peer B, download chunk 1 (2 seconds)  } ALL AT
+Thread 3: Connect to Peer C, download chunk 2 (2 seconds)  } THE SAME
+Thread 4: Connect to Peer D, download chunk 3 (2 seconds)  } TIME!
 
+Total time: 2 seconds (4x faster!)
+
+*/
     for (auto& t : threads) t.join();
+    /*
+        What it does:
+        Main thread blocks here until ALL 4 worker threads finish
+        Ensures all chunks are downloaded before proceeding
+    */
 
     int cnt=0;
-    for (const auto& status : chunk_status) {
+    for (const auto& status : chunk_status) 
+    {
         if (status == ChunkStatus::Missing) {
             cnt++;
+            break;
         }
     }
-    if(cnt>0){
+    if(cnt>0)
+    {
         cout << "Some chunks are missing." << endl;
         string nd = "NOT_DONE";
         write(client_socket, nd.c_str(), nd.length());

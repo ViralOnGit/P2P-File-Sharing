@@ -18,7 +18,7 @@ extern int check_login;
 
 using namespace std;
 
-void ClientSocket::clienttoseeder(int client_socket) {
+void ClientSocket::clienttoseeder(int client_socket) { //move this in filetransferhandler.cpp 
     char buffer[1024];
     if(check_login == 0) {
         close(client_socket);
@@ -66,6 +66,8 @@ void ClientSocket::clienttoseeder(int client_socket) {
 }
 
 void ClientSocket::peer2peer(string server_ip, int server_port)
+//after having file to share or some chunks to share, client becomes seeder and opens a server socket to act
+//like a server for other peers to connect and download the file/chunks
 {
     int opt = 1;
 
@@ -85,7 +87,9 @@ void ClientSocket::peer2peer(string server_ip, int server_port)
     server_addr.sin_addr.s_addr = inet_addr(server_ip.c_str());
     server_addr.sin_port = htons(server_port);
     inet_pton(AF_INET, server_ip.c_str(), &(server_addr.sin_addr));
-    if (bind(server_socket_fd, (sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
+    if (bind(server_socket_fd, (sockaddr*)&server_addr, sizeof(server_addr)) < 0) 
+    {//here it's binding the socket because it's acting like a server now and listening
+    //for incoming connections from other peers
          perror("Bind failed.");
         close(server_socket_fd);
         return;
@@ -103,7 +107,45 @@ void ClientSocket::peer2peer(string server_ip, int server_port)
         int client_socket = accept(server_socket_fd, (sockaddr*)&client_addr, &addr_len);
         cout << "Connection Established Peer to Peer" << std::endl;
         thread client_thread(&ClientSocket::clienttoseeder, this, client_socket);
+        /*
+        Handle multiple peer uploads simultaneously
+
+        When peer2peer (running in background thread) accepts a connection 
+        from another peer who wants to download from you, 
+        it creates a NEW thread to serve that peer.
+
+        Without Threading (BAD):
+        peer2peer thread:
+        ├─ accept() Peer A connection
+        ├─ clienttoseeder(Peer A) → Upload chunk (5 seconds)
+        │   └─ While serving Peer A, accept() is NOT called
+        ├─ accept() Peer B connection (had to wait 5 seconds!)
+        ├─ clienttoseeder(Peer B) → Upload chunk (5 seconds)
+        └─ ...
+
+        Problem: Peer B must wait for Peer A to finish!
+        With Threading (GOOD - Your Code):
+        peer2peer thread:
+        ├─ accept() Peer A connection
+        ├─ Create thread 1 → clienttoseeder(Peer A) uploads chunk
+        ├─ accept() Peer B connection (IMMEDIATELY!)
+        ├─ Create thread 2 → clienttoseeder(Peer B) uploads chunk
+        ├─ accept() Peer C connection
+        └─ Create thread 3 → clienttoseeder(Peer C) uploads chunk
+
+        All three peers download simultaneously! 🚀
+
+
+
+
+        */
         client_thread.detach();
+        /*
+        Why detach (not join)?
+        peer2peer loop continues immediately to accept next peer
+        We don't need to wait for upload to finish
+
+        */
     }
 
     close(server_socket_fd);

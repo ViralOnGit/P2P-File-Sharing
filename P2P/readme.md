@@ -69,7 +69,7 @@ run tracker: ./tracker tracker_info.txt 1
 create_user a 1
 login a 1
 create_group 123
-upload_file R.mp4 123
+upload_file temp.mp4 123
 
 *b side*
 create_user b 1
@@ -80,7 +80,7 @@ join_group 123
 accept_request 123 b
 
 *b side* 
-download_file 123 R.mp4 d1252.mp4
+download_file 123 temp.mp4 d12252.mp4
 
 stop_share 123 R.mp4
 
@@ -93,4 +93,4 @@ join_group 123
 accept_request 123 c
 
 *c side*
-download_file 123 R.mp4 Dkddhweewhdfk.mp4
+download_file 123 temp.mp4 gbh.mp4

@@ -40,7 +40,6 @@ map<string, set<string>>& TrackerCommandHandler::getJoiningRequest() { return jo
 map<string, int>& TrackerCommandHandler::getOneLogin() { return one_login; }
 map<pair<string, int>, unordered_set<int>>& TrackerCommandHandler::getChunkownerPorts() { return chunkownerPorts; }
 vector<FileInfo>& TrackerCommandHandler::getTrackerFiles() { return trackerFiles; }
-vector<FileInfo>& TrackerCommandHandler::getTotalClients() { return totalclients; }
 string& TrackerCommandHandler::getLogin() { return login; }
 vector<int>& TrackerCommandHandler::getGroupList() { return group_list; }
 
@@ -138,13 +137,6 @@ string UserCommandHandler::handle_logout(const vector<string>& tokenise_commands
     else 
     {
         for (auto& file : tracker->getTrackerFiles()) //if user logs out then make loggedin=0 so that files he has uploaded doesnt get showed up when he is loggedout
-        {
-            if (file.clientId == tracker->getLogin()) 
-            {
-                file.isLoggedIn = false;
-            }
-        }
-        for (auto& file : tracker->getTotalClients()) //if user logs out then make loggedin=0 so that files he has uploaded doesnt get showed up when he is loggedout
         {
             if (file.clientId == tracker->getLogin()) 
             {
@@ -393,7 +385,6 @@ string FileCommandHandler::handle_upload_file(const vector<string>& tokenise_com
     }
     FileInfo file = {filename, groupid, tracker->getLogin(), port, chunkSHA1s, true, false};
     tracker->getTrackerFiles().push_back(file);
-    tracker->getTotalClients().push_back(file);
     for (size_t i = 0; i < chunkSHA1s.size(); ++i) {
         tracker->getChunkownerPorts()[{filename, i}].insert(stoi(port)); 
     }
@@ -401,6 +392,16 @@ string FileCommandHandler::handle_upload_file(const vector<string>& tokenise_com
     write(client_socket, response.c_str(), response.size());
     return "";
 }
+/*
+    checks edge conditions and then insert the upload request data to trackerfiles for metadata
+    lookups in other commands(i.e storing chunkhashes, file is available to which group) etc, atleast one user is 
+    there who has file and is loggedin and stop_share = false for that, (2 level checkup)
+    at client side also we are checking after rreceiving ports that is the port is loggedin and
+    stop-share = false or not and tracker side also we are checking before sending, so we kept that
+    both in trackerfiles vector.
+    and then we insert the filename, chunknumber -> port in chunkownerports too to indicate which chunk
+    has which ports that are sharing it. and so necessary info is stored like that.
+*/
 
 string FileCommandHandler::handle_download_file(const vector<string>& tokenise_commands, int client_socket)
 {
@@ -425,18 +426,21 @@ string FileCommandHandler::handle_download_file(const vector<string>& tokenise_c
     }
     string groupid = tokenise_commands[1];
     string filename = tokenise_commands[2];
-    vector<FileInfo> file_holders;
     string filesize, file_sha1;
     vector<string> chunk_sha1s;
-    for(const auto& fileInfo : tracker->getTotalClients()) {
+    bool file_available = false;
+    
+    // Use trackerFiles to check availability and get chunk hashes
+    for(const auto& fileInfo : tracker->getTrackerFiles()) {
         if(fileInfo.fileName == filename && fileInfo.groupId == groupid && fileInfo.isLoggedIn && !fileInfo.stop_share) {
-            file_holders.push_back(fileInfo);
-            if(chunk_sha1s.size() < fileInfo.chunkSHA1s.size()) {
+            file_available = true;
+            if(chunk_sha1s.empty()) {
                 chunk_sha1s = fileInfo.chunkSHA1s;
             }
         }
     }
-    if(file_holders.empty()) {
+    
+    if(!file_available) {
         string response = "Sorry, Currently this file is not available in this group";
         write(client_socket, response.c_str(), response.length());
         return "";
@@ -471,26 +475,7 @@ string FileCommandHandler::handle_download_file(const vector<string>& tokenise_c
                 int have_port = stoi(have_tokens[3]);
                 cout << have_filename << " " << have_chunkNum << " " << have_port << endl;
                 tracker->getChunkownerPorts()[{have_filename, have_chunkNum}].insert(have_port);
-                bool found = false;
-                for (auto& info : tracker->getTotalClients()) {
-                    if (info.fileName == have_filename && info.port == to_string(have_port)) {
-                        info.chunkSHA1s[have_chunkNum] = chunk_sha1s[have_chunkNum];
-                        found = true;
-                        break;
-                    }
-                }
-                if (!found) {
-                    FileInfo newInfo;
-                    newInfo.fileName = have_filename;
-                    newInfo.groupId = groupid;
-                    newInfo.clientId = tracker->getLogin();
-                    newInfo.port = to_string(have_port);
-                    newInfo.isLoggedIn = true;
-                    newInfo.stop_share = false;
-                    newInfo.chunkSHA1s.resize(chunk_sha1s.size(), "");
-                    newInfo.chunkSHA1s[have_chunkNum] = chunk_sha1s[have_chunkNum];
-                    tracker->getTotalClients().push_back(newInfo);
-                }   
+                
                 string ack = "Chunk registered";
                 write(client_socket, ack.c_str(), ack.length());
             } else if(have_tokens[0] == "DONE") {
@@ -504,6 +489,18 @@ string FileCommandHandler::handle_download_file(const vector<string>& tokenise_c
     }
     return "";
 }
+/*
+    checks edge conditions and then uses trackerfiles to check if atleast one user is 
+    there who has file and is loggedin and stop_share = false for that, (2 level checkup)
+    at client side also we are checking after rreceiving ports that is the port is loggedin and
+    stop-share = false or not and tracker side also we are checking before sending, so we kept that
+    both in trackerfiles vector.
+    and then we lookup the filename, chunknumber -> port in chunkownerports to indicate which chunk
+    has which ports that are sharing it. and so necessary info is sent back to client like that.
+    and also we read back from client which chunks he has successfully downloaded and update
+    chunkownerports accordingly to add his port as well for those chunks. and at the end
+    if client is done downloading all chunks we receive DONE message else NOT_DONE message.
+*/
 
 string FileCommandHandler::handle_stop_share(const vector<string>& tokenise_commands, int client_socket)
 {

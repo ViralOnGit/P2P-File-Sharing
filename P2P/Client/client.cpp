@@ -47,9 +47,32 @@ int main(int argc, char* argv[]) {
     cout << "Port: " << port << endl;
     ClientSocket socket;
     thread client_thread(&ClientSocket::peer2peer, &socket, ip, port);
-    client_thread.detach();
+    /*This creates a background thread that runs the peer2peer function, allowing the client to act as both:
+    Client (main thread): Communicates with the tracker, sends commands
+    Server (background thread): Listens for incoming connections from other peers
+    */
+   /*
+   ─────────────────────────┐     ┌──────────────────────────┐
+│   Main Thread           │     │   Background Thread      │
+│                         │     │   (client_thread)        │
+├─────────────────────────┤     ├──────────────────────────┤
+│ 1. Read user commands   │     │ 1. Start server socket   │
+│ 2. Connect to tracker   │     │ 2. listen() for peers    │
+│ 3. Send: create_user    │     │ 3. accept() connections  │
+│ 4. Send: login          │     │ 4. Handle file uploads   │
+│ 5. Send: upload_file    │     │    from other peers      │
+│ 6. Send: download_file  │     │                          │
+│ 7. Connect to peer...   │     │ (Runs in parallel!)      │
+│ 8. Download chunks...   │     │                          │
+└─────────────────────────┘     └──────────────────────────┘
+         ↕                                  ↕
+    Tracker Server                    Other Peers*/
+
+
+    client_thread.detach(); //new created thread runs independently and listens 
+    //for peer connections
     CommandHandler handler;
-    handler.run_client(ip, port);
+    handler.run_client(ip, port); //main thread runs run client and talks with tracker
 
     return 0;
 }

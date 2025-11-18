@@ -7,7 +7,7 @@ CXXFLAGS = -std=c++11 -Wall -Wextra -O2 -lpthread -lm
 TARGET = tracker
 
 # Source files (all .cpp files in current directory)
-SOURCES = tracker.cpp utils.cpp
+SOURCES = tracker.cpp utils.cpp TrackerCommandHandler.cpp TrackerSocket.cpp
 
 # Object files (replace .cpp with .o)
 OBJECTS = $(SOURCES:.cpp=.o)

@@ -128,7 +128,8 @@ void CommandHandler::run_client(const string& ip, int port)
     server_addr.sin_addr.s_addr = inet_addr(ip.c_str());
     server_addr.sin_port = htons(stoi(tokens[1]));
 
-    if (connect(client_socket, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0)
+    if (connect(client_socket, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) //os automatically
+    //binds an available local port and IP address to the socket
     {
         cerr << "Connection failed." << endl;
         close(client_socket);

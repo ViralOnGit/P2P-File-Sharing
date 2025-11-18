@@ -79,7 +79,9 @@ int main(int argc, char *argv[])
     }
 
     // Start the server (this will run indefinitely)
-    server.run();
+    server.run(); //tracker is divided in 2 threads, main thread is for accepting new connections
+    //of clients and another thread is for communicating with each client about their commands
+    //so this run function is invoked by main thread with continuesly accepting new client conn.
 
     return 0;
 }
